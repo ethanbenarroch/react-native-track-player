@@ -16,7 +16,6 @@
     "example": "yarn --cwd example",
     "pods": "cd example/ios && pod install",
     "bootstrap": "yarn example && yarn && yarn pods",
-    "prepublishOnly": "yarn lint",
     "preversion": "yarn lint",
     "version": "yarn format && git add -A src && yarn changelog && git add CHANGELOG.md",
     "postversion": "if [[ ${npm_package_version} != *'nightly'* ]]; then yarn publish:git && yarn publish:npm; fi",
