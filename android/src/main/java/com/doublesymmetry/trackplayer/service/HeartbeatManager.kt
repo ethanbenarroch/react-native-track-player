@@ -100,7 +100,10 @@ class HeartbeatManager(private val context: Context) {
                 val code = response.code
                 response.close()
                 if (code in 200..299) {
-                    prefs.edit().putLong(KEY_LAST_HB_SENT_AT, sentAt).apply()
+                    prefs.edit()
+                        .putLong(KEY_LAST_HB_SENT_AT, sentAt)
+                        .putString(KEY_LAST_HB_SONG_ID, songId)
+                        .apply()
                     Log.i(TAG, "success code=$code")
                 } else {
                     Log.w(TAG, "http error code=$code")
@@ -122,6 +125,7 @@ class HeartbeatManager(private val context: Context) {
         const val KEY_SONG_ID = "horra_hb_song_id"
         const val KEY_IS_JINGLE = "horra_hb_is_jingle"
         const val KEY_LAST_HB_SENT_AT = "horra_last_hb_sent_at"
+        const val KEY_LAST_HB_SONG_ID = "horra_last_hb_song_id"
         const val KEY_BASE_URL = "horra_hb_base_url"
 
         // Fallback if JS hasn't written the base URL yet.
