@@ -47,6 +47,7 @@ class MusicService : HeadlessJsTaskService() {
     private val scope = MainScope()
     private var progressUpdateJob: Job? = null
     private lateinit var heartbeatManager: HeartbeatManager
+    private var horraWsClient: HorraWebSocketClient? = null
 
     /**
      * Use [appKilledPlaybackBehavior] instead.
@@ -96,6 +97,9 @@ class MusicService : HeadlessJsTaskService() {
 
     override fun onCreate() {
         super.onCreate()
+        // Clear any leftover native WS state from a previous session.
+        horraWsClient?.stop()
+        horraWsClient = null
         heartbeatManager = HeartbeatManager(this)
         heartbeatManager.start()
     }
@@ -794,7 +798,14 @@ class MusicService : HeadlessJsTaskService() {
                 stopSelf()
                 exitProcess(0)
             }
-            else -> {}
+            else -> {
+                // CONTINUE_PLAYBACK: JS thread died with MainActivity — start native WS
+                // to keep schedule sync alive while music plays in the background.
+                if (::player.isInitialized) {
+                    horraWsClient = HorraWebSocketClient(this, this)
+                    horraWsClient?.start()
+                }
+            }
         }
     }
 
@@ -805,6 +816,8 @@ class MusicService : HeadlessJsTaskService() {
 
     @MainThread
     override fun onDestroy() {
+        horraWsClient?.stop()
+        horraWsClient = null
         if (::heartbeatManager.isInitialized) {
             heartbeatManager.stop()
         }
