@@ -46,6 +46,7 @@ class MusicService : HeadlessJsTaskService() {
     private val binder = MusicBinder()
     private val scope = MainScope()
     private var progressUpdateJob: Job? = null
+    private lateinit var heartbeatManager: HeartbeatManager
 
     /**
      * Use [appKilledPlaybackBehavior] instead.
@@ -92,6 +93,12 @@ class MusicService : HeadlessJsTaskService() {
     private var capabilities: List<Capability> = emptyList()
     private var notificationCapabilities: List<Capability> = emptyList()
     private var compactCapabilities: List<Capability> = emptyList()
+
+    override fun onCreate() {
+        super.onCreate()
+        heartbeatManager = HeartbeatManager(this)
+        heartbeatManager.start()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startTask(getTaskConfig(intent))
@@ -798,6 +805,9 @@ class MusicService : HeadlessJsTaskService() {
 
     @MainThread
     override fun onDestroy() {
+        if (::heartbeatManager.isInitialized) {
+            heartbeatManager.stop()
+        }
         super.onDestroy()
         if (::player.isInitialized) {
             player.destroy()
