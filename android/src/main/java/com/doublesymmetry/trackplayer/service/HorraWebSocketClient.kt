@@ -72,11 +72,13 @@ class HorraWebSocketClient(
         val jsAliveAt = prefs.getLong(KEY_JS_ALIVE_AT, 0L)
         if (jsAliveAt > 0L && System.currentTimeMillis() - jsAliveAt < JS_ALIVE_THRESHOLD_MS) {
             Log.i(TAG, "JS is alive again — handing off and stopping native WS")
+            KtEventLog.append(context, TAG, "ws_js_alive_handoff")
             stop()
             return@Runnable
         }
 
         Log.i(TAG, "reconnecting after ${reconnectDelayMs}ms delay")
+        KtEventLog.append(context, TAG, "ws_reconnect delay=${reconnectDelayMs}ms")
         connect()
     }
 
@@ -92,6 +94,7 @@ class HorraWebSocketClient(
         insertedJingleIds.clear()
         prefs.edit().putBoolean(KEY_WS_KOTLIN_ACTIVE, true).apply()
         Log.i(TAG, "start — connecting to WS")
+        KtEventLog.append(context, TAG, "ws_start")
         connect()
     }
 
@@ -107,6 +110,7 @@ class HorraWebSocketClient(
         socket?.close(CLOSE_NORMAL, "stop requested")
         socket = null
         Log.i(TAG, "stopped")
+        KtEventLog.append(context, TAG, "ws_stop")
     }
 
     // ── Connection management ─────────────────────────────────────────────────
@@ -318,8 +322,10 @@ class HorraWebSocketClient(
         try {
             service.add(toAdd)
             Log.i(TAG, "addTracksToPlayer: added ${toAdd.size} tracks")
+            KtEventLog.append(context, TAG, "ws_tracks_added count=${toAdd.size}")
         } catch (e: Exception) {
             Log.e(TAG, "addTracksToPlayer: service.add() failed — ${e.message}")
+            KtEventLog.append(context, TAG, "ws_tracks_add_error ${e.message}")
         }
     }
 
@@ -353,8 +359,10 @@ class HorraWebSocketClient(
             service.add(listOf(buildTrack(jingle)), insertAt)
             insertedJingleIds.add(jingleId)
             Log.i(TAG, "insertJingleNext: jingle $jingleId inserted at index $insertAt")
+            KtEventLog.append(context, TAG, "ws_jingle_inserted id=$jingleId at=$insertAt")
         } catch (e: Exception) {
             Log.e(TAG, "insertJingleNext: failed — ${e.message}")
+            KtEventLog.append(context, TAG, "ws_jingle_error id=$jingleId ${e.message}")
         }
     }
 
@@ -402,6 +410,7 @@ class HorraWebSocketClient(
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.i(TAG, "onOpen — authenticating")
+            KtEventLog.append(context, TAG, "ws_open")
             resetBackoff()
             sendAuthenticate()
         }

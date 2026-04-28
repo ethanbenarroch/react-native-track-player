@@ -32,11 +32,13 @@ class HeartbeatManager(private val context: Context) {
 
     fun start() {
         Log.i(TAG, "start")
+        KtEventLog.append(context, TAG, "start")
         handler.postDelayed(tickRunnable, INTERVAL_MS)
     }
 
     fun stop() {
         Log.i(TAG, "stop")
+        KtEventLog.append(context, TAG, "stop")
         handler.removeCallbacks(tickRunnable)
     }
 
@@ -63,6 +65,7 @@ class HeartbeatManager(private val context: Context) {
         }
         if (now - lastSentAt < DEDUP_WINDOW_MS) {
             Log.d(TAG, "skip: dedup age=${now - lastSentAt}ms")
+            KtEventLog.append(context, TAG, "hb_dedup_skip songId=$songId age=${now - lastSentAt}ms")
             return
         }
 
@@ -105,11 +108,14 @@ class HeartbeatManager(private val context: Context) {
                         .putString(KEY_LAST_HB_SONG_ID, songId)
                         .apply()
                     Log.i(TAG, "success code=$code")
+                    KtEventLog.append(context, TAG, "hb_ok code=$code songId=$songId")
                 } else {
                     Log.w(TAG, "http error code=$code")
+                    KtEventLog.append(context, TAG, "hb_error code=$code songId=$songId")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "network error: ${e.message}")
+                KtEventLog.append(context, TAG, "hb_network_error ${e.message}")
             }
         }.start()
     }
