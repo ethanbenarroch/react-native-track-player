@@ -157,32 +157,67 @@ class HorraWebSocketClient(
     }
 
     private fun sendStartStreaming() {
-        val venueId = prefs.getString(KEY_VENUE_ID, null)
-        val zoneId  = prefs.getString(KEY_ZONE_ID, null)
+        val venueId    = prefs.getString(KEY_VENUE_ID, null)
+        val zoneId     = prefs.getString(KEY_ZONE_ID, null)
+        val scheduleId = prefs.getString(KEY_WS_SCHEDULE_ID, null)
+
         if (venueId.isNullOrEmpty() || zoneId.isNullOrEmpty()) {
             Log.w(TAG, "sendStartStreaming: missing venue_id or zone_id")
+            KtEventLog.append(context, TAG, "ws_start_streaming_skip: no venue/zone")
             return
         }
-        val scheduleId = prefs.getString(KEY_WS_SCHEDULE_ID, null)
+        // schedule_id is required by the server (firstOrFail). Without it the server
+        // cannot look up the PlaylistSequence and will return an error. Skip until JS
+        // has written it via updateWsUrl flow (written by check_next_schedule or JS start).
+        if (scheduleId.isNullOrEmpty()) {
+            Log.w(TAG, "sendStartStreaming: no schedule_id yet — skipping, will retry on next reconnect")
+            KtEventLog.append(context, TAG, "ws_start_streaming_skip: no schedule_id")
+            return
+        }
+
+        // Server DB queries expect integer IDs, not strings.
+        val venueIdInt    = venueId.toIntOrNull()
+        val zoneIdInt     = zoneId.toIntOrNull()
+        val scheduleIdInt = scheduleId.toIntOrNull()
+        if (venueIdInt == null || zoneIdInt == null || scheduleIdInt == null) {
+            Log.w(TAG, "sendStartStreaming: non-numeric id venue=$venueId zone=$zoneId schedule=$scheduleId")
+            KtEventLog.append(context, TAG, "ws_start_streaming_skip: non-numeric ids")
+            return
+        }
+
         send(JSONObject().apply {
             put("type", "start_streaming")
-            put("venue_id", venueId)
-            put("zone_id", zoneId)
-            // Include schedule_id only if we have one — lets the server resume the right slot.
-            if (!scheduleId.isNullOrEmpty()) put("schedule_id", scheduleId)
+            put("venue_id", venueIdInt)
+            put("zone_id", zoneIdInt)
+            put("schedule_id", scheduleIdInt)
         })
-        Log.i(TAG, "sent: start_streaming venue=$venueId zone=$zoneId schedule=$scheduleId")
+        Log.i(TAG, "sent: start_streaming venue=$venueIdInt zone=$zoneIdInt schedule=$scheduleIdInt")
+        KtEventLog.append(context, TAG, "ws_start_streaming venue=$venueIdInt zone=$zoneIdInt schedule=$scheduleIdInt")
     }
 
     private fun sendRequestNextBatch() {
         val scheduleId = prefs.getString(KEY_WS_SCHEDULE_ID, null)
         val position   = prefs.getLong(KEY_WS_QUEUE_POSITION, 0L)
+
+        // sequence_id is required by the server — sending without it returns a hard error.
+        if (scheduleId.isNullOrEmpty()) {
+            Log.w(TAG, "sendRequestNextBatch: no sequence_id — skipping")
+            KtEventLog.append(context, TAG, "ws_next_batch_skip: no sequence_id")
+            return
+        }
+        val scheduleIdInt = scheduleId.toIntOrNull()
+        if (scheduleIdInt == null) {
+            Log.w(TAG, "sendRequestNextBatch: non-numeric sequence_id=$scheduleId")
+            return
+        }
+
         send(JSONObject().apply {
             put("type", "request_next_batch")
             put("position", position)
-            if (!scheduleId.isNullOrEmpty()) put("sequence_id", scheduleId)
+            put("sequence_id", scheduleIdInt)
         })
-        Log.i(TAG, "sent: request_next_batch position=$position schedule=$scheduleId")
+        Log.i(TAG, "sent: request_next_batch position=$position sequence=$scheduleIdInt")
+        KtEventLog.append(context, TAG, "ws_next_batch_sent position=$position seq=$scheduleIdInt")
     }
 
     /** Sends a JSON message on the current socket. No-op if socket is not open. */
@@ -220,20 +255,25 @@ class HorraWebSocketClient(
 
             "streaming_started" -> {
                 // Server returned the initial queue for this schedule slot.
-                val queue      = json.optJSONArray("queue") ?: JSONArray()
-                val position   = json.optLong("queue_position", 0L)
-                val scheduleId = json.optString("schedule_id", "")
-                persistQueueState(position, scheduleId)
+                // Note: server response includes queue_position; schedule_id is NOT included
+                // here — it arrives via check_next_schedule push. Only update position.
+                val queue    = json.optJSONArray("queue") ?: JSONArray()
+                val position = json.optLong("queue_position", 0L)
+                persistQueueState(position, null)
                 mainHandler.post { addTracksToPlayer(queue) }
+                KtEventLog.append(context, TAG, "ws_streaming_started tracks=${queue.length()} pos=$position")
             }
 
             "next_batch" -> {
-                // Server returned the next page of tracks.
+                // Server returns: queue, sequence_id, has_more — but NO queue_position.
+                // Advance position manually: current + number of tracks received.
                 val queue      = json.optJSONArray("queue") ?: JSONArray()
-                val position   = json.optLong("queue_position", 0L)
-                val scheduleId = json.optString("schedule_id", "")
-                persistQueueState(position, scheduleId)
+                val scheduleId = json.optString("sequence_id", "")  // server uses sequence_id here
+                val currentPos = prefs.getLong(KEY_WS_QUEUE_POSITION, 0L)
+                val newPos     = currentPos + queue.length()
+                persistQueueState(newPos, scheduleId.ifEmpty { null })
                 mainHandler.post { addTracksToPlayer(queue) }
+                KtEventLog.append(context, TAG, "ws_next_batch tracks=${queue.length()} pos=$currentPos→$newPos")
             }
 
             "check_next_schedule" -> {
@@ -397,10 +437,10 @@ class HorraWebSocketClient(
      * Persists queue_position and schedule_id so JS can resync without
      * requesting a full restart when it returns to the foreground.
      */
-    private fun persistQueueState(position: Long, scheduleId: String) {
+    private fun persistQueueState(position: Long, scheduleId: String?) {
         prefs.edit().apply {
             putLong(KEY_WS_QUEUE_POSITION, position)
-            if (scheduleId.isNotEmpty()) putString(KEY_WS_SCHEDULE_ID, scheduleId)
+            if (!scheduleId.isNullOrEmpty()) putString(KEY_WS_SCHEDULE_ID, scheduleId)
         }.apply()
     }
 
