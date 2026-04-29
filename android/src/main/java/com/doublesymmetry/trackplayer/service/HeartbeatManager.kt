@@ -82,9 +82,10 @@ class HeartbeatManager(private val context: Context) {
         baseUrl: String,
         sentAt: Long,
     ) {
+        // Backend validator requires song_id and zone_id as integers, not strings.
         val body = JSONObject().apply {
-            put("song_id", songId)
-            put("zone_id", zoneId)
+            put("song_id", songId.toIntOrNull() ?: songId)
+            put("zone_id", zoneId.toIntOrNull() ?: zoneId)
             put("is_jingle", isJingle)
             put("platform", "android")
         }.toString().toRequestBody("application/json".toMediaType())
